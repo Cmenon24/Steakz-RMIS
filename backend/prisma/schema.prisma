@@ -1,0 +1,833 @@
+// Generates the Prisma Client in our backend source folder.
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// PostgreSQL connection is configured in prisma7.config.ts.
+datasource db {
+  provider = "postgresql"
+}
+
+// The five fixed employee roles.
+enum Role {
+  ADMIN
+  HEADQUARTERS_MANAGER
+  BRANCH_MANAGER
+  SERVER
+  COOK
+}
+
+// Current status of a restaurant table.
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  INACTIVE
+}
+
+enum DrinkType {
+  SOFT_DRINK
+  BEER
+  WINE
+}
+
+enum RecipeVersionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum InventoryUnit {
+  G
+  KG
+  ML
+  L
+  CAN
+  BOTTLE
+  GLASS
+  PIECE
+  PORTION
+}
+
+enum InventoryTransactionType {
+  OPENING_BALANCE
+  RECEIVING
+  WASTAGE
+  CORRECTION_INCREASE
+  CORRECTION_DECREASE
+  ORDER_DEDUCTION
+  ORDER_REVERSAL
+  STOCKTAKE_ADJUSTMENT
+}
+
+enum InventoryActorType {
+  USER
+  SYSTEM
+}
+
+enum InventoryAlertType {
+  LOW_STOCK
+  OUT_OF_STOCK
+}
+
+enum StocktakeStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum OrderStatus {
+  NEW
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESSFUL
+  FAILED
+}
+
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  PROCESSED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum ActorType {
+  USER
+  SYSTEM
+}
+
+enum SystemLogOutcome {
+  SUCCESS
+  FAILURE
+}
+
+enum SystemLogSeverity {
+  INFO
+  WARNING
+  ERROR
+}
+
+// A restaurant branch.
+model Branch {
+  id            String    @id @default(uuid()) @db.Uuid
+  branchCode    String    @unique
+  name          String
+  address       String
+  contactNumber String
+  email         String
+  timeZone      String
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  deactivatedAt DateTime? @db.Timestamptz(3)
+
+  // Employees currently assigned to this branch.
+  users User[]
+
+  // Employee transfer history involving this branch.
+  previousTransfers EmployeeBranchHistory[] @relation("PreviousBranch")
+  newTransfers      EmployeeBranchHistory[] @relation("NewBranch")
+
+  // Tables physically belonging to this branch.
+  restaurantTables RestaurantTable[]
+
+  // Menu availability records for this branch.
+  menuAvailabilities      BranchMenuAvailability[]
+  menuAvailabilityHistory MenuAvailabilityHistory[]
+
+  // Inventory records belonging to this branch.
+  inventoryRecords      BranchInventory[]
+  inventoryTransactions InventoryTransaction[]
+  inventoryAlerts       InventoryAlert[]
+  stocktakes            Stocktake[]
+
+  orders Order[]
+
+  // Promotions configured for this branch.
+  promotionBranches PromotionBranch[]
+
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  systemLogs    SystemLog[]
+
+  referenceCounters ReferenceCounter[]
+}
+
+// An employee account.
+model User {
+  id            String    @id @default(uuid()) @db.Uuid
+  firstName     String
+  lastName      String
+  email         String    @unique
+  passwordHash  String
+  role          Role
+  branchId      String?   @db.Uuid
+  isActive      Boolean   @default(true)
+  deactivatedAt DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  // A user may have a branch assignment, depending on their role.
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  // Branch transfers belonging to this employee.
+  branchHistory EmployeeBranchHistory[] @relation("EmployeeHistory")
+
+  // Transfers this user authorized as an administrator.
+  changesMade EmployeeBranchHistory[] @relation("ChangedBy")
+
+  // Orders and other relationships will be added in later groups.
+
+  // Availability changes made by this employee.
+  menuAvailabilityChanges MenuAvailabilityHistory[]
+
+  // Recipe versions created by this employee.
+  recipeVersionsCreated RecipeVersion[]
+
+  // Inventory transactions created by this employee.
+  inventoryTransactionsCreated InventoryTransaction[]
+
+  // Stocktakes started and completed by this employee.
+  stocktakesStarted   Stocktake[] @relation("StocktakeStartedBy")
+  stocktakesCompleted Stocktake[] @relation("StocktakeCompletedBy")
+
+  // Orders handled by this Server.
+  serverOrders Order[] @relation("OrderServer")
+
+  // Orders cancelled by this employee.
+  cancelledOrders Order[] @relation("OrderCancelledBy")
+
+  // Order status changes made by this employee.
+  orderStatusChanges OrderStatusHistory[]
+
+  // Payments processed by this employee.
+  paymentsProcessed Payment[]
+
+  // Refund requests submitted by this employee.
+  refundsRequested Refund[] @relation("RefundRequestedBy")
+
+  // Refunds approved or processed by this employee.
+  refundsProcessed Refund[] @relation("RefundProcessedBy")
+
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  systemLogs    SystemLog[]
+
+  @@index([branchId])
+  @@index([role])
+}
+
+// Records subsequent employee branch transfers.
+model EmployeeBranchHistory {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @db.Uuid
+  previousBranchId String   @db.Uuid
+  newBranchId      String   @db.Uuid
+  changedByUserId  String   @db.Uuid
+  changedAt        DateTime @default(now()) @db.Timestamptz(3)
+  reason           String?
+
+  // The employee whose assignment changed.
+  user User @relation("EmployeeHistory", fields: [userId], references: [id], onDelete: Restrict)
+
+  // The employee's previous and new branches.
+  previousBranch Branch @relation("PreviousBranch", fields: [previousBranchId], references: [id], onDelete: Restrict)
+  newBranch      Branch @relation("NewBranch", fields: [newBranchId], references: [id], onDelete: Restrict)
+
+  // The administrator who made the change.
+  changedBy User @relation("ChangedBy", fields: [changedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([changedByUserId])
+  @@index([previousBranchId])
+  @@index([newBranchId])
+}
+
+// A physical restaurant table within a branch.
+model RestaurantTable {
+  id          String      @id @default(uuid()) @db.Uuid
+  branchId    String      @db.Uuid
+  tableNumber String
+  capacity    Int?
+  status      TableStatus @default(AVAILABLE)
+  createdAt   DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @db.Timestamptz(3)
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  // Orders will be related to tables in a later group.
+
+  orders Order[]
+
+  @@unique([branchId, tableNumber])
+  @@index([branchId])
+}
+
+model MenuCategory {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @unique
+  description  String?
+  isActive     Boolean  @default(true)
+  displayOrder Int?
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  menuItems MenuItem[]
+}
+
+model MenuItem {
+  id           String     @id @default(uuid()) @db.Uuid
+  categoryId   String     @db.Uuid
+  name         String
+  description  String?
+  price        Decimal    @db.Decimal(10, 2)
+  imageUrl     String?
+  drinkType    DrinkType?
+  isActive     Boolean    @default(true)
+  displayOrder Int?
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @db.Timestamptz(3)
+
+  category MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  // Sides configured for this meal.
+  configuredSides MealSide[] @relation("MealSides")
+
+  // Menu items used as sides by other meals.
+  usedAsSide MealSide[] @relation("SideMenuItem")
+
+  branchAvailabilities BranchMenuAvailability[]
+  availabilityHistory  MenuAvailabilityHistory[]
+
+  recipe Recipe?
+
+  orderItems OrderItem[]
+
+  // Promotions that include this menu item.
+  promotionItems PromotionItem[]
+
+  @@unique([categoryId, name])
+  @@index([categoryId])
+}
+
+model MealSide {
+  id             String   @id @default(uuid()) @db.Uuid
+  menuItemId     String   @db.Uuid
+  sideMenuItemId String?  @db.Uuid
+  sideName       String
+  position       Int
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  // The steak meal that contains this side.
+  menuItem MenuItem @relation("MealSides", fields: [menuItemId], references: [id], onDelete: Restrict)
+
+  // Optional legacy link; new fixed sides are stored by name.
+  sideMenuItem MenuItem? @relation("SideMenuItem", fields: [sideMenuItemId], references: [id], onDelete: Restrict)
+
+  orderItemSides OrderItemSide[]
+
+  @@unique([menuItemId, position])
+  @@unique([menuItemId, sideMenuItemId])
+  @@index([sideMenuItemId])
+}
+
+model BranchMenuAvailability {
+  id                               String   @id @default(uuid()) @db.Uuid
+  branchId                         String   @db.Uuid
+  menuItemId                       String   @db.Uuid
+  isAvailable                      Boolean  @default(true)
+  isBlockedByStock                 Boolean  @default(false)
+  requiresReactivationConfirmation Boolean  @default(false)
+  updatedAt                        DateTime @updatedAt @db.Timestamptz(3)
+
+  branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+
+  @@unique([branchId, menuItemId])
+  @@index([menuItemId])
+}
+
+model MenuAvailabilityHistory {
+  id                                       String   @id @default(uuid()) @db.Uuid
+  branchId                                 String   @db.Uuid
+  menuItemId                               String   @db.Uuid
+  changedByUserId                          String?  @db.Uuid
+  previousIsAvailable                      Boolean?
+  newIsAvailable                           Boolean?
+  previousIsBlockedByStock                 Boolean?
+  newIsBlockedByStock                      Boolean?
+  previousRequiresReactivationConfirmation Boolean?
+  newRequiresReactivationConfirmation      Boolean?
+  reason                                   String?
+  changedAt                                DateTime @default(now()) @db.Timestamptz(3)
+
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  menuItem  MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+  changedBy User?    @relation(fields: [changedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([branchId, menuItemId])
+  @@index([changedByUserId])
+}
+
+model Recipe {
+  id         String   @id @default(uuid()) @db.Uuid
+  menuItemId String   @unique @db.Uuid
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  menuItem MenuItem        @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+  versions RecipeVersion[]
+}
+
+model RecipeVersion {
+  id              String              @id @default(uuid()) @db.Uuid
+  recipeId        String              @db.Uuid
+  versionNumber   Int
+  status          RecipeVersionStatus @default(DRAFT)
+  createdByUserId String              @db.Uuid
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  publishedAt     DateTime?           @db.Timestamptz(3)
+
+  recipe    Recipe @relation(fields: [recipeId], references: [id], onDelete: Restrict)
+  createdBy User   @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  ingredients RecipeIngredient[]
+
+  orderItems OrderItem[]
+
+  @@unique([recipeId, versionNumber])
+  @@index([createdByUserId])
+}
+
+model RecipeIngredient {
+  id              String        @id @default(uuid()) @db.Uuid
+  recipeVersionId String        @db.Uuid
+  ingredientId    String        @db.Uuid
+  quantity        Decimal       @db.Decimal(12, 3)
+  unit            InventoryUnit
+
+  recipeVersion RecipeVersion @relation(fields: [recipeVersionId], references: [id], onDelete: Restrict)
+
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@unique([recipeVersionId, ingredientId])
+  @@index([ingredientId])
+}
+
+model Ingredient {
+  id        String        @id @default(uuid()) @db.Uuid
+  name      String        @unique
+  unit      InventoryUnit
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime      @updatedAt @db.Timestamptz(3)
+
+  recipeIngredients     RecipeIngredient[]
+  inventoryRecords      BranchInventory[]
+  inventoryTransactions InventoryTransaction[]
+  inventoryAlerts       InventoryAlert[]
+  stocktakeItems        StocktakeItem[]
+}
+
+model BranchInventory {
+  id                String   @id @default(uuid()) @db.Uuid
+  branchId          String   @db.Uuid
+  ingredientId      String   @db.Uuid
+  quantityOnHand    Decimal  @default(0) @db.Decimal(12, 3)
+  minimumStockLevel Decimal  @default(0) @db.Decimal(12, 3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+
+  branch     Branch     @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@unique([branchId, ingredientId])
+  @@index([ingredientId])
+}
+
+// Generates sequential references separately for each branch and record type.
+model ReferenceCounter {
+  id            String @id @default(uuid()) @db.Uuid
+  branchId      String @db.Uuid
+  referenceType String
+  lastNumber    Int    @default(0)
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([branchId, referenceType])
+}
+
+model InventoryTransaction {
+  id               String                   @id @default(uuid()) @db.Uuid
+  referenceNumber  String
+  referenceType    String
+  idempotencyKey   String?
+  branchId         String                   @db.Uuid
+  ingredientId     String                   @db.Uuid
+  transactionType  InventoryTransactionType
+  quantityChange   Decimal                  @db.Decimal(12, 3)
+  previousQuantity Decimal                  @db.Decimal(12, 3)
+  newQuantity      Decimal                  @db.Decimal(12, 3)
+  unitCost         Decimal?                 @db.Decimal(10, 2)
+  supplierName     String?
+  reason           String?
+  notes            String?
+  createdByUserId  String?                  @db.Uuid
+  actorType        InventoryActorType
+  createdAt        DateTime                 @default(now()) @db.Timestamptz(3)
+  orderId          String?                  @db.Uuid
+  stocktakeId      String?                  @db.Uuid
+
+  branch     Branch     @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  createdBy  User?      @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  stocktake  Stocktake? @relation(fields: [stocktakeId], references: [id], onDelete: Restrict)
+  order      Order?     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@unique([branchId, referenceType, referenceNumber])
+  @@unique([branchId, idempotencyKey])
+  @@index([ingredientId, createdAt])
+  @@index([orderId])
+  @@index([stocktakeId])
+  @@index([createdByUserId])
+}
+
+model InventoryAlert {
+  id           String             @id @default(uuid()) @db.Uuid
+  branchId     String             @db.Uuid
+  ingredientId String             @db.Uuid
+  alertType    InventoryAlertType
+  createdAt    DateTime           @default(now()) @db.Timestamptz(3)
+  resolvedAt   DateTime?          @db.Timestamptz(3)
+
+  branch     Branch     @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@index([branchId, ingredientId])
+  @@index([resolvedAt])
+}
+
+model Stocktake {
+  id                String          @id @default(uuid()) @db.Uuid
+  branchId          String          @db.Uuid
+  status            StocktakeStatus @default(IN_PROGRESS)
+  startedByUserId   String          @db.Uuid
+  completedByUserId String?         @db.Uuid
+  startedAt         DateTime        @default(now()) @db.Timestamptz(3)
+  completedAt       DateTime?       @db.Timestamptz(3)
+
+  branch      Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  startedBy   User   @relation("StocktakeStartedBy", fields: [startedByUserId], references: [id], onDelete: Restrict)
+  completedBy User?  @relation("StocktakeCompletedBy", fields: [completedByUserId], references: [id], onDelete: Restrict)
+
+  items                 StocktakeItem[]
+  inventoryTransactions InventoryTransaction[]
+
+  @@index([branchId, status])
+}
+
+model StocktakeItem {
+  id                    String    @id @default(uuid()) @db.Uuid
+  stocktakeId           String    @db.Uuid
+  ingredientId          String    @db.Uuid
+  systemQuantityAtCount Decimal   @db.Decimal(12, 3)
+  actualQuantity        Decimal?  @db.Decimal(12, 3)
+  variance              Decimal?  @db.Decimal(12, 3)
+  countedAt             DateTime? @db.Timestamptz(3)
+
+  stocktake  Stocktake  @relation(fields: [stocktakeId], references: [id], onDelete: Restrict)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@unique([stocktakeId, ingredientId])
+  @@index([ingredientId])
+}
+
+model Order {
+  id                 String      @id @default(uuid()) @db.Uuid
+  orderNumber        String
+  branchId           String      @db.Uuid
+  tableId            String      @db.Uuid
+  serverId           String      @db.Uuid
+  status             OrderStatus @default(NEW)
+  subtotal           Decimal     @db.Decimal(10, 2)
+  discountTotal      Decimal     @default(0) @db.Decimal(10, 2)
+  taxTotal           Decimal     @default(0) @db.Decimal(10, 2)
+  totalAmount        Decimal     @db.Decimal(10, 2)
+  createdAt          DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime    @updatedAt @db.Timestamptz(3)
+  completedAt        DateTime?   @db.Timestamptz(3)
+  cancelledAt        DateTime?   @db.Timestamptz(3)
+  cancelledByUserId  String?     @db.Uuid
+  cancellationReason String?
+
+  branch Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  table  RestaurantTable @relation(fields: [tableId], references: [id], onDelete: Restrict)
+
+  server User @relation("OrderServer", fields: [serverId], references: [id], onDelete: Restrict)
+
+  cancelledBy User? @relation("OrderCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: Restrict)
+
+  items                 OrderItem[]
+  statusHistory         OrderStatusHistory[]
+  inventoryTransactions InventoryTransaction[]
+  payments              Payment[]
+  promotion             OrderPromotion?
+
+  @@unique([branchId, orderNumber])
+  @@index([branchId, status])
+  @@index([tableId])
+  @@index([serverId])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id                   String   @id @default(uuid()) @db.Uuid
+  orderId              String   @db.Uuid
+  menuItemId           String   @db.Uuid
+  menuItemNameSnapshot String
+  unitPriceSnapshot    Decimal  @db.Decimal(10, 2)
+  quantity             Int
+  lineSubtotal         Decimal  @db.Decimal(10, 2)
+  // Promotion details are copied here so historical orders never change.
+  promotionId                   String?      @db.Uuid
+  promotionNameSnapshot         String?
+  promotionDiscountTypeSnapshot DiscountType?
+  promotionDiscountValueSnapshot Decimal?    @db.Decimal(10, 2)
+  promotionDiscountAmount       Decimal      @default(0) @db.Decimal(10, 2)
+  lineTotal                     Decimal      @default(0) @db.Decimal(10, 2)
+  recipeVersionId      String   @db.Uuid
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+
+  recipeVersion RecipeVersion @relation(fields: [recipeVersionId], references: [id], onDelete: Restrict)
+
+  // Optional link for reporting; snapshot fields remain the historical source of truth.
+  promotion Promotion? @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+
+  sides OrderItemSide[]
+
+  @@index([orderId])
+  @@index([menuItemId])
+  @@index([recipeVersionId])
+  @@index([promotionId])
+}
+
+model OrderItemSide {
+  id               String  @id @default(uuid()) @db.Uuid
+  orderItemId      String  @db.Uuid
+  sourceMealSideId String? @db.Uuid
+  sideNameSnapshot String
+  quantity         Int     @default(1)
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+
+  sourceMealSide MealSide? @relation(fields: [sourceMealSideId], references: [id], onDelete: Restrict)
+
+  @@index([orderItemId])
+  @@index([sourceMealSideId])
+}
+
+model OrderStatusHistory {
+  id              String       @id @default(uuid()) @db.Uuid
+  orderId         String       @db.Uuid
+  previousStatus  OrderStatus?
+  newStatus       OrderStatus
+  changedByUserId String       @db.Uuid
+  changedAt       DateTime     @default(now()) @db.Timestamptz(3)
+  note            String?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  changedBy User @relation(fields: [changedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([orderId, changedAt])
+  @@index([changedByUserId])
+}
+
+model Payment {
+  id                String        @id @default(uuid()) @db.Uuid
+  orderId           String        @db.Uuid
+  paymentReference  String        @unique
+  amount            Decimal       @db.Decimal(10, 2)
+  paymentMethod     PaymentMethod
+  status            PaymentStatus @default(PENDING)
+  processedByUserId String        @db.Uuid
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
+
+  order       Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  processedBy User  @relation(fields: [processedByUserId], references: [id], onDelete: Restrict)
+
+  refunds Refund[]
+
+  @@index([orderId])
+  @@index([processedByUserId])
+}
+
+model Refund {
+  id                String       @id @default(uuid()) @db.Uuid
+  paymentId         String       @db.Uuid
+  amount            Decimal      @db.Decimal(10, 2)
+  reason            String
+  status            RefundStatus @default(REQUESTED)
+  requestedByUserId String       @db.Uuid
+  processedByUserId String?      @db.Uuid
+  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
+  processedAt       DateTime?    @db.Timestamptz(3)
+
+  payment     Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  requestedBy User    @relation("RefundRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  processedBy User?   @relation("RefundProcessedBy", fields: [processedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId])
+  @@index([requestedByUserId])
+  @@index([processedByUserId])
+}
+
+model Promotion {
+  id            String       @id @default(uuid()) @db.Uuid
+  name          String
+  description   String?
+  discountType  DiscountType
+  discountValue Decimal      @db.Decimal(10, 2)
+  startDate     DateTime     @db.Timestamptz(3)
+  endDate       DateTime     @db.Timestamptz(3)
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+
+  // Branches and menu items eligible for this promotion.
+  branches PromotionBranch[]
+  items PromotionItem[]
+
+  // New orders store the applied promotion on each OrderItem.
+  appliedOrderItems OrderItem[]
+
+  // Retained for compatibility with existing historical order records.
+  orderPromotions OrderPromotion[]
+
+  @@index([isActive, startDate, endDate])
+}
+
+
+// Associates a promotion with a participating branch.
+model PromotionBranch {
+  id          String @id @default(uuid()) @db.Uuid
+  promotionId String @db.Uuid
+  branchId    String @db.Uuid
+
+  promotion Promotion @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+  branch    Branch    @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([promotionId, branchId])
+  @@index([branchId])
+}
+
+// Associates a promotion with an eligible menu item.
+model PromotionItem {
+  id          String @id @default(uuid()) @db.Uuid
+  promotionId String @db.Uuid
+  menuItemId  String @db.Uuid
+
+  promotion Promotion @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+  menuItem  MenuItem  @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+
+  @@unique([promotionId, menuItemId])
+  @@index([menuItemId])
+}
+
+model OrderPromotion {
+  id                    String       @id @default(uuid()) @db.Uuid
+  orderId               String       @unique @db.Uuid
+  promotionId           String       @db.Uuid
+  promotionNameSnapshot String
+  discountTypeSnapshot  DiscountType
+  discountValueSnapshot Decimal      @db.Decimal(10, 2)
+  discountAmount        Decimal      @db.Decimal(10, 2)
+  createdAt             DateTime     @default(now()) @db.Timestamptz(3)
+
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  promotion Promotion @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+
+  @@index([promotionId])
+}
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  branchId  String?  @db.Uuid
+  title     String
+  message   String
+  type      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@index([userId, isRead, createdAt])
+  @@index([branchId])
+}
+
+model AuditLog {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String?   @db.Uuid
+  actorType  ActorType
+  branchId   String?   @db.Uuid
+  action     String
+  entityType String
+  entityId   String
+  details    Json?
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([branchId, createdAt])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+}
+
+model SystemLog {
+  id                String            @id @default(uuid()) @db.Uuid
+  userId            String?           @db.Uuid
+  actorType         ActorType
+  branchId          String?           @db.Uuid
+  operation         String
+  outcome           SystemLogOutcome
+  severity          SystemLogSeverity
+  failureReason     String?
+  technicalDetails  String?
+  relatedEntityType String?
+  relatedEntityId   String?
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@index([createdAt])
+  @@index([branchId, createdAt])
+  @@index([operation, createdAt])
+  @@index([outcome, severity, createdAt])
+  @@index([userId, createdAt])
+}
+

@@ -31,6 +31,8 @@
 - View branch orders and reports.
 - Adjust branch inventory manually.
 - Monitor order processing.
+- Approve or reject Server-submitted full refunds for their branch by entering their account email and password at the shared Server terminal.
+- Initiate their own full refunds after confirming the order and amount in a safety prompt.
 - Cannot access another branch's operational records.
 
 ### 2.4 Server
@@ -39,7 +41,8 @@
 - Submit orders to the kitchen.
 - View order progress.
 - Process payments after food orders are completed.
-- Cannot manage menu items or inventory.
+- Request full refunds with a reason; Branch Manager approval is required.
+- Cannot approve refunds, manage menu items or inventory.
 
 ### 2.5 Cook
 - View incoming kitchen orders.
@@ -50,13 +53,14 @@
 ## 3. Menu and Meal Rules
 
 ### 3.1 Complete Meals
-1. Each meal consists of one steak and up to two included sides.
-2. Customers cannot order individual sides separately.
-3. Each meal is represented by one complete menu item.
-4. The second side is optional.
-5. When no second side is selected, the server must explicitly select the "No Second Side" option.
-6. Side selections must follow the meal's configured options.
-7. Meals must not be treated as collections of independently priced steak and side items.
+1. Each steak meal consists of one steak and exactly two included fixed sides.
+2. Each meal is represented by one complete menu item.
+3. Headquarters configures the two sides for each steak meal.
+4. Servers and customers cannot substitute, remove, or add sides.
+5. Customers cannot order individual sides separately.
+6. Both sides are included in the meal price and its recipe/inventory requirements.
+7. A steak meal cannot be published or ordered unless both sides are configured.
+8. Meals must not be treated as collections of independently priced steak and side items.
 
 ### 3.2 Menu Categories
 The menu must support the following categories:
@@ -78,7 +82,7 @@ The menu must support the following categories:
 
 ### 4.1 Order Creation
 1. Every order must belong to one branch.
-2. Every order must have a globally unique five-character reference.
+2. Every order must have a human-readable reference generated sequentially for its branch. The reference is the branch code followed by a four-digit, zero-padded counter (for example, `LON0010001`). The order counter is maintained separately from inventory transaction counters.
 3. An order must contain one or more order items.
 4. Each order item must reference the selected menu item.
 5. Order item prices must be captured when the order is placed.
@@ -134,7 +138,7 @@ Orders must follow these statuses:
 5. Inventory transactions must be retained for audit purposes.
 
 ### 5.4 Inventory Transactions
-1. Every inventory transaction must have a globally unique five-character reference.
+1. Every inventory transaction must have a human-readable reference generated sequentially for its branch. The reference is the branch code followed by a four-digit, zero-padded counter (for example, `LON0010001`). Inventory transaction counters are maintained separately from order counters.
 2. Transactions must identify the affected ingredient and branch.
 3. Transactions must record the quantity change and transaction type.
 4. Transaction history must distinguish order deductions, cancellation reversals, and manual adjustments.
@@ -151,14 +155,23 @@ Orders must follow these statuses:
 7. Historical orders must retain their original discount values.
 8. Promotion eligibility must be validated by the backend.
 
-## 7. Payment Rules
+## 7. Payment and Refund Rules
 
 1. Payments must only be processed after the food order reaches COMPLETED status.
 2. Payments must be associated with their corresponding orders.
-3. Payment records must include the amount, payment method, status, and transaction details where applicable.
-4. The system must prevent duplicate payment processing.
-5. Payment history must be retained for reporting and auditing.
-6. Payment amounts must reflect the final order total after applicable discounts.
+3. Payment records must include the amount, payment method, status, and processing Server.
+4. Payment amounts must equal the final order total after applicable discounts.
+5. The system must prevent duplicate payments, including simultaneous attempts by different Servers.
+6. Payment history must be retained for reporting and auditing.
+7. Only full refunds are permitted; partial refunds are not supported.
+8. A Server may request a full refund and provide a reason. The refund remains pending until the Branch Manager for that branch approves or rejects it.
+9. At the shared Server terminal, the Branch Manager must enter their account email and password to approve or reject a Server-submitted refund. The Manager must belong to the order's branch.
+10. A Branch Manager may initiate their own full refund. The system must show a confirmation prompt with the order and full refund amount; confirmation processes the refund immediately.
+11. The Branch Manager is recorded as both requester and processor for a Manager-initiated refund.
+12. Admin and Headquarters Manager do not authorize refunds.
+13. The system must prevent duplicate active or processed refunds, including simultaneous requests. A rejected request may be submitted again.
+14. Payment recording, refund requests, approvals, rejections, and Manager-initiated refunds must create audit records.
+15. Refunds do not automatically restore inventory.
 
 ## 8. Reporting Rules
 

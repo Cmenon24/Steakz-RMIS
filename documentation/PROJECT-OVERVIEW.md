@@ -62,7 +62,7 @@ Access permissions will be enforced through backend role-based access control.
 - Track order preparation and completion.
 - Provide a shared order queue.
 - Maintain order item prices and discounts as historical snapshots.
-- Generate globally unique five-character order references.
+- Generate sequential order references using the branch code and a four-digit, zero-padded branch counter. Order references are unique within the order reference type.
 
 ### 4.5 Inventory Management
 - Track inventory by branch.
@@ -70,7 +70,7 @@ Access permissions will be enforced through backend role-based access control.
 - Automatically deduct ingredients when orders are submitted.
 - Record inventory movements and adjustments.
 - Reverse the original deduction when an eligible NEW order is cancelled.
-- Generate five-character inventory transaction references.
+- Generate sequential inventory transaction references using the branch code and a four-digit, zero-padded branch counter. Inventory references use a separate counter from order references.
 
 ### 4.6 Promotions
 - Centrally managed promotions.

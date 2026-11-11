@@ -155,7 +155,7 @@ Implement the primary restaurant management functionality.
 
 ### 6.5 Order Management
 - Create customer orders.
-- Generate unique five-character references.
+- Generate branch-scoped sequential references using the branch code and a four-digit, zero-padded counter; maintain separate counters for orders and inventory transactions.
 - Create order items.
 - Preserve pricing snapshots.
 - Validate meal selections.
