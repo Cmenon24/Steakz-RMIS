@@ -127,7 +127,7 @@ interface CreateUserInput {
 }
 
 // Create a user account with the correct role and branch assignment.
-export async function createUser(input: CreateUserInput) {
+export async function createUser(input: CreateUserInput, actingUserId: string) {
   const email = input.email.toLowerCase().trim();
 
   // Check whether the email is already registered.
@@ -165,32 +165,32 @@ export async function createUser(input: CreateUserInput) {
   // Hash the initial password before saving the account.
   const passwordHash = await hashPassword(input.password);
 
-  // Create the account and return safe user information.
-  return prisma.user.create({
-    data: {
-      firstName: input.firstName.trim(),
-      lastName: input.lastName.trim(),
-      email,
-      passwordHash,
-      role: input.role,
-      branchId: input.branchId ?? null,
-    },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      role: true,
-      branchId: true,
-      isActive: true,
-      createdAt: true,
-      branch: {
-        select: {
-          name: true,
-          branchCode: true,
-        },
+  // Save the account and its audit record together.
+  return prisma.$transaction(async (tx) => {
+    const createdUser = await tx.user.create({
+      data: {
+        firstName: input.firstName.trim(),
+        lastName: input.lastName.trim(),
+        email,
+        passwordHash,
+        role: input.role,
+        branchId: input.branchId ?? null,
       },
-    },
+      select: {
+        id: true, firstName: true, lastName: true, email: true, role: true,
+        branchId: true, isActive: true, createdAt: true,
+        branch: { select: { name: true, branchCode: true } },
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: actingUserId, actorType: "USER", branchId: createdUser.branchId,
+        action: "USER_CREATED", entityType: "USER", entityId: createdUser.id,
+        details: { firstName: createdUser.firstName, lastName: createdUser.lastName, email: createdUser.email, role: createdUser.role },
+      },
+    });
+    return createdUser;
   });
 }
 
@@ -206,7 +206,8 @@ interface UpdateUserInput {
 // Update user details while enforcing role and branch rules.
 export async function updateUser(
   userId: string,
-  input: UpdateUserInput
+  input: UpdateUserInput,
+  actingUserId: string
 ) {
   // Confirm that the user exists.
   const existingUser = await prisma.user.findUnique({
@@ -272,40 +273,36 @@ export async function updateUser(
     }
   }
 
-  // Update the account and return safe user information.
-  return prisma.user.update({
-    where: { id: userId },
-    data: {
-      ...(input.firstName !== undefined && {
-        firstName: input.firstName.trim(),
-      }),
-      ...(input.lastName !== undefined && {
-        lastName: input.lastName.trim(),
-      }),
-      ...(input.email !== undefined && {
-        email: input.email.toLowerCase().trim(),
-      }),
-      ...(input.role !== undefined && { role: input.role }),
-      branchId,
-    },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      role: true,
-      branchId: true,
-      isActive: true,
-      deactivatedAt: true,
-      createdAt: true,
-      updatedAt: true,
-      branch: {
-        select: {
-          name: true,
-          branchCode: true,
+  // Update the account and write its audit record atomically.
+  return prisma.$transaction(async (tx) => {
+    const updatedUser = await tx.user.update({
+      where: { id: userId },
+      data: {
+        ...(input.firstName !== undefined && { firstName: input.firstName.trim() }),
+        ...(input.lastName !== undefined && { lastName: input.lastName.trim() }),
+        ...(input.email !== undefined && { email: input.email.toLowerCase().trim() }),
+        ...(input.role !== undefined && { role: input.role }),
+        branchId,
+      },
+      select: {
+        id: true, firstName: true, lastName: true, email: true, role: true,
+        branchId: true, isActive: true, deactivatedAt: true, createdAt: true,
+        updatedAt: true, branch: { select: { name: true, branchCode: true } },
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: actingUserId, actorType: "USER", branchId: updatedUser.branchId,
+        action: "USER_UPDATED", entityType: "USER", entityId: updatedUser.id,
+        details: {
+          changedFields: Object.keys(input),
+          previous: { firstName: existingUser.firstName, lastName: existingUser.lastName, email: existingUser.email, role: existingUser.role, branchId: existingUser.branchId },
+          current: { firstName: updatedUser.firstName, lastName: updatedUser.lastName, email: updatedUser.email, role: updatedUser.role, branchId: updatedUser.branchId },
         },
       },
-    },
+    });
+    return updatedUser;
   });
 }
 
@@ -346,29 +343,23 @@ if (user.role === "ADMIN") {
     throw new AppError("User is already inactive", 409);
   }
 
-  // Soft-deactivate the account.
-  return prisma.user.update({
-    where: { id: userId },
-    data: {
-      isActive: false,
-      deactivatedAt: new Date(),
-    },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      role: true,
-      branchId: true,
-      isActive: true,
-      deactivatedAt: true,
-    },
+  // Soft-deactivate the account and record the action atomically.
+  return prisma.$transaction(async (tx) => {
+    const deactivatedUser = await tx.user.update({
+      where: { id: userId },
+      data: { isActive: false, deactivatedAt: new Date() },
+      select: { id: true, firstName: true, lastName: true, email: true, role: true, branchId: true, isActive: true, deactivatedAt: true },
+    });
+    await tx.auditLog.create({
+      data: { userId: actingUserId, actorType: "USER", branchId: user.branchId, action: "USER_DEACTIVATED", entityType: "USER", entityId: user.id, details: { email: user.email, role: user.role } },
+    });
+    return deactivatedUser;
   });
 }
 
 
 // Reactivate a previously deactivated user account.
-export async function reactivateUser(userId: string) {
+export async function reactivateUser(userId: string, actingUserId: string) {
   // Confirm that the user exists.
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -397,23 +388,16 @@ export async function reactivateUser(userId: string) {
     }
   }
 
-  // Restore the account and clear its deactivation date.
-  return prisma.user.update({
-    where: { id: userId },
-    data: {
-      isActive: true,
-      deactivatedAt: null,
-    },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      role: true,
-      branchId: true,
-      isActive: true,
-      deactivatedAt: true,
-    },
+  // Restore the account and record the action atomically.
+  return prisma.$transaction(async (tx) => {
+    const reactivatedUser = await tx.user.update({
+      where: { id: userId }, data: { isActive: true, deactivatedAt: null },
+      select: { id: true, firstName: true, lastName: true, email: true, role: true, branchId: true, isActive: true, deactivatedAt: true },
+    });
+    await tx.auditLog.create({
+      data: { userId: actingUserId, actorType: "USER", branchId: user.branchId, action: "USER_REACTIVATED", entityType: "USER", entityId: user.id, details: { email: user.email, role: user.role } },
+    });
+    return reactivatedUser;
   });
 }
 
@@ -492,6 +476,14 @@ export async function transferEmployee(input: TransferEmployeeInput) {
       },
     });
 
+    await tx.auditLog.create({
+      data: {
+        userId: input.changedByUserId, actorType: "USER", branchId: input.newBranchId,
+        action: "USER_BRANCH_TRANSFERRED", entityType: "USER", entityId: employee.id,
+        details: { email: employee.email, role: employee.role, previousBranchId: employee.branchId, newBranchId: input.newBranchId, reason: input.reason?.trim() || null, transferHistoryId: history.id },
+      },
+    });
+
     return {
       employee: updatedEmployee,
       transferHistory: history,
@@ -503,7 +495,8 @@ export async function transferEmployee(input: TransferEmployeeInput) {
 // Reset a user's password using an Admin-provided password.
 export async function resetUserPassword(
   userId: string,
-  newPassword: string
+  newPassword: string,
+  actingUserId: string
 ) {
   // Confirm that the user exists.
   const user = await prisma.user.findUnique({
@@ -517,19 +510,15 @@ export async function resetUserPassword(
   // Hash the new password before saving it.
   const passwordHash = await hashPassword(newPassword);
 
-  // Update the password without returning sensitive information.
-  return prisma.user.update({
-    where: { id: userId },
-    data: {
-      passwordHash,
-    },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      role: true,
-      isActive: true,
-    },
+  // Update the password and record the reset without storing password data.
+  return prisma.$transaction(async (tx) => {
+    const updatedUser = await tx.user.update({
+      where: { id: userId }, data: { passwordHash },
+      select: { id: true, firstName: true, lastName: true, email: true, role: true, isActive: true },
+    });
+    await tx.auditLog.create({
+      data: { userId: actingUserId, actorType: "USER", branchId: user.branchId, action: "USER_PASSWORD_RESET", entityType: "USER", entityId: user.id, details: { email: user.email, role: user.role } },
+    });
+    return updatedUser;
   });
 }

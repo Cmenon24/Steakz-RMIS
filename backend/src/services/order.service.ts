@@ -540,7 +540,24 @@ export async function getOrders(input: { branchId?: string; status?: string; fro
       items: { include: { sides: true } },
       table: { select: { tableNumber: true } },
       server: { select: { id: true, firstName: true, lastName: true } },
-      payments: { select: { id: true, status: true, amount: true } },
+      payments: {
+        select: {
+          id: true,
+          status: true,
+          amount: true,
+          refunds: {
+            select: {
+              id: true,
+              amount: true,
+              reason: true,
+              status: true,
+              createdAt: true,
+              processedAt: true,
+            },
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });

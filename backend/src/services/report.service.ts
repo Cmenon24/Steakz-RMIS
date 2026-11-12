@@ -306,7 +306,9 @@ export async function getSalesReport(input: {
         refunds: roundMoney(refundTotal),
         netSales: roundMoney(netSales),
         completedOrderCount: orders.length,
-        averageOrderValue: orders.length ? roundMoney(netSales / orders.length) : 0,
+        averageOrderValue: orders.length
+          ? roundMoney((grossSales - discounts) / orders.length)
+          : 0,
       },
       revenueByCategory: [...categoryTotals.entries()]
         .map(([category, revenue]) => ({ category, grossRevenue: roundMoney(revenue) }))
@@ -330,7 +332,9 @@ export async function getSalesReport(input: {
     scope: input.requestedBranchId ? "BRANCH" : input.role === "BRANCH_MANAGER" ? "BRANCH" : "ALL_BRANCHES",
     summary: {
       ...Object.fromEntries(Object.entries(summary).map(([key, value]) => [key, key === "completedOrderCount" ? value : roundMoney(value)])),
-      averageOrderValue: summary.completedOrderCount ? roundMoney(summary.netSales / summary.completedOrderCount) : 0,
+      averageOrderValue: summary.completedOrderCount
+        ? roundMoney((summary.grossSales - summary.discounts) / summary.completedOrderCount)
+        : 0,
     },
     branches: results,
   };

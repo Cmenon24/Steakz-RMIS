@@ -135,8 +135,11 @@ export async function createUserController(
     // Validate the submitted user information.
     const validatedData = createUserSchema.parse(req.body);
 
-    // Create the user through the service.
-    const user = await createUser(validatedData);
+    // Attribute the action to the authenticated Admin.
+    if (!req.auth) throw new AppError("Authentication required", 401);
+
+    // Create the user and record the Admin's action.
+    const user = await createUser(validatedData, req.auth.userId);
 
     res.status(201).json({
       success: true,
@@ -165,8 +168,11 @@ export async function updateUserController(
     // Validate the submitted update information.
     const validatedData = updateUserSchema.parse(req.body);
 
-    // Update the user through the service.
-    const user = await updateUser(userId, validatedData);
+    // Attribute the action to the authenticated Admin.
+    if (!req.auth) throw new AppError("Authentication required", 401);
+
+    // Update the user and record the Admin's action.
+    const user = await updateUser(userId, validatedData, req.auth.userId);
 
     res.status(200).json({
       success: true,
@@ -224,8 +230,11 @@ export async function reactivateUserController(
       throw new AppError("Invalid user ID", 400);
     }
 
-    // Reactivate the account through the service.
-    const user = await reactivateUser(userId);
+    // Attribute the action to the authenticated Admin.
+    if (!req.auth) throw new AppError("Authentication required", 401);
+
+    // Reactivate the account and record the Admin's action.
+    const user = await reactivateUser(userId, req.auth.userId);
 
     res.status(200).json({
       success: true,
@@ -294,10 +303,14 @@ export async function resetUserPasswordController(
     // Validate the new password.
     const validatedData = resetPasswordSchema.parse(req.body);
 
-    // Reset the password through the service.
+    // Attribute the action to the authenticated Admin.
+    if (!req.auth) throw new AppError("Authentication required", 401);
+
+    // Reset the password and record the Admin's action (never the password).
     const user = await resetUserPassword(
       userId,
-      validatedData.newPassword
+      validatedData.newPassword,
+      req.auth.userId
     );
 
     res.status(200).json({
